@@ -1,10 +1,8 @@
 #!/usr/bin/python3
-
 """ Downloaded from https://git.gnome.org/browse/adwaita-icon-theme/tree/render-icon-theme.py
     Modified by Gabor Karsay
     Not for distribution
 """
-
 import os
 import subprocess
 import sys
