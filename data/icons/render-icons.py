@@ -16,10 +16,12 @@ SRC = os.path.join('..', '..', 'src', 'resources', 'icons')
 
 inkscape_process = None
 
+
 def optimize_png(png_file):
     if os.path.exists(OPTIPNG):
         process = subprocess.Popen([OPTIPNG, '-quiet', '-o7', png_file])
         process.wait()
+
 
 def wait_for_prompt(process, command=None):
     if command is not None:
@@ -36,17 +38,22 @@ def wait_for_prompt(process, command=None):
         output += process.stdout.read(1)
         output = output[1:]
 
+
 def start_inkscape():
-    process = subprocess.Popen([INKSCAPE, '--shell'], bufsize=0, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    process = subprocess.Popen(
+        [INKSCAPE, '--shell'], bufsize=0, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     wait_for_prompt(process)
     return process
+
 
 def inkscape_render_rect(icon_file, rect, output_file):
     global inkscape_process
     if inkscape_process is None:
         inkscape_process = start_inkscape()
-    wait_for_prompt(inkscape_process, '%s -i %s -e %s' % (icon_file, rect, output_file))
+    wait_for_prompt(inkscape_process, '%s -i %s -e %s' %
+                    (icon_file, rect, output_file))
     optimize_png(output_file)
+
 
 class ContentHandler(xml.sax.ContentHandler):
     ROOT = 0
@@ -54,6 +61,7 @@ class ContentHandler(xml.sax.ContentHandler):
     LAYER = 2
     OTHER = 3
     TEXT = 4
+
     def __init__(self, path, force=False, filter=None):
         self.stack = [self.ROOT]
         self.inside = [self.ROOT]
@@ -75,7 +83,7 @@ class ContentHandler(xml.sax.ContentHandler):
                 return
         elif self.inside[-1] == self.SVG:
             if (name == "g" and ('inkscape:groupmode' in attrs) and ('inkscape:label' in attrs)
-               and attrs['inkscape:groupmode'] == 'layer' and attrs['inkscape:label'].startswith('baseplate')):
+                    and attrs['inkscape:groupmode'] == 'layer' and attrs['inkscape:label'].startswith('baseplate')):
                 self.stack.append(self.LAYER)
                 self.inside.append(self.LAYER)
                 self.context = None
@@ -86,20 +94,19 @@ class ContentHandler(xml.sax.ContentHandler):
             if name == "text" and ('inkscape:label' in attrs) and attrs['inkscape:label'] == 'context':
                 self.stack.append(self.TEXT)
                 self.inside.append(self.TEXT)
-                self.text='context'
+                self.text = 'context'
                 self.chars = ""
                 return
             elif name == "text" and ('inkscape:label' in attrs) and attrs['inkscape:label'] == 'icon-name':
                 self.stack.append(self.TEXT)
                 self.inside.append(self.TEXT)
-                self.text='icon-name'
+                self.text = 'icon-name'
                 self.chars = ""
                 return
             elif name == "rect":
                 self.rects.append(attrs)
 
         self.stack.append(self.OTHER)
-
 
     def endElement(self, name):
         stacked = self.stack.pop()
@@ -120,7 +127,7 @@ class ContentHandler(xml.sax.ContentHandler):
             if self.filter is not None and self.icon_name not in self.filter:
                 return
 
-            print (self.context, self.icon_name)
+            print(self.context, self.icon_name)
             for rect in self.rects:
                 width = rect['width']
                 height = rect['height']
@@ -149,8 +156,9 @@ class ContentHandler(xml.sax.ContentHandler):
     def characters(self, chars):
         self.chars += chars.strip()
 
+
 if len(sys.argv) == 1:
-    print ('Rendering from SVGs in', SRC)
+    print('Rendering from SVGs in', SRC)
     for file in os.listdir(SRC):
         if file[-4:] == '.svg':
             file = os.path.join(SRC, file)
@@ -163,7 +171,5 @@ else:
         handler = ContentHandler(file, True, filter=icons)
         xml.sax.parse(open(file), handler)
     else:
-        print ("Error: No such file", file)
+        print("Error: No such file", file)
         sys.exit(1)
-
-
