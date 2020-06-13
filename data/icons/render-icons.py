@@ -6,9 +6,9 @@
 """
 
 import os
+import subprocess
 import sys
 import xml.sax
-import subprocess
 
 INKSCAPE = "/usr/bin/inkscape"
 OPTIPNG = "/usr/bin/optipng"
