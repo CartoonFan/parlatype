@@ -117,7 +117,7 @@ class ContentHandler(xml.sax.ContentHandler):
             assert self.icon_name
             assert self.context
 
-            if self.filter is not None and not self.icon_name in self.filter:
+            if self.filter is not None and self.icon_name not in self.filter:
                 return
 
             print (self.context, self.icon_name)
@@ -158,10 +158,7 @@ if len(sys.argv) == 1:
             xml.sax.parse(open(file), handler)
 else:
     file = os.path.join(SRC, sys.argv[1] + '.svg')
-    if len(sys.argv) > 2:
-        icons = sys.argv[2:]
-    else:
-        icons = None
+    icons = sys.argv[2:] if len(sys.argv) > 2 else None
     if os.path.exists(os.path.join(file)):
         handler = ContentHandler(file, True, filter=icons)
         xml.sax.parse(open(file), handler)
