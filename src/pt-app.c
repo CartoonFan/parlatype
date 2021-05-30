@@ -34,8 +34,6 @@
 
 struct _PtAppPrivate
 {
-	gboolean       asr;
-	PtAsrSettings *asr_settings;
 #ifdef G_OS_UNIX
 	PtMediakeys   *mediakeys;
 	PtDbusService *dbus_service;
@@ -61,16 +59,6 @@ static GOptionEntry options[] =
 	  N_("Show the application’s version"),
 	  NULL
 	},
-#ifdef HAVE_ASR
-	{ "with-asr",
-	  'a',
-	  G_OPTION_FLAG_NONE,
-	  G_OPTION_ARG_NONE,
-	  NULL,
-	  N_("Enable automatic speech recognition"),
-	  NULL
-	},
-#endif
 	{ NULL }
 };
 
@@ -250,20 +238,6 @@ const GActionEntry app_actions[] = {
 	{ "quit", quit_cb, NULL, NULL, NULL }
 };
 
-PtAsrSettings*
-pt_app_get_asr_settings (PtApp *app)
-{
-	g_assert (PT_IS_APP (app));
-	return app->priv->asr_settings;
-}
-
-gboolean
-pt_app_get_asr (PtApp *app)
-{
-	g_assert (PT_IS_APP (app));
-	return app->priv->asr;
-}
-
 static void
 pt_app_startup (GApplication *app)
 {
@@ -398,38 +372,12 @@ static gint
 pt_app_handle_local_options (GApplication *application,
                              GVariantDict *options)
 {
-	PtApp *app = PT_APP (application);
-
 	if (g_variant_dict_contains (options, "version")) {
-		g_print ("%s %s\n", PACKAGE, VERSION);
+		g_print ("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 		return 0;
 	}
 
-	if (g_variant_dict_contains (options, "with-asr")) {
-		app->priv->asr = TRUE;
-	}
-
 	return -1;
-}
-
-static gchar*
-get_asr_settings_filename (void)
-{
-	const gchar *userdir;
-	gchar	    *configdir;
-	GFile	    *create_dir;
-	gchar       *filename;
-
-	userdir = g_get_user_data_dir ();
-	configdir = g_build_path ("/", userdir, PACKAGE, NULL);
-	create_dir = g_file_new_for_path (configdir);
-	g_file_make_directory (create_dir, NULL, NULL);
-	filename = g_build_filename (configdir, "asr.ini", NULL);
-
-	g_free (configdir);
-	g_object_unref (create_dir);
-
-	return filename;
 }
 
 static void
@@ -447,20 +395,13 @@ pt_app_init (PtApp *app)
 	app->priv->win32pipe = NULL;
 #endif
 	g_application_add_main_option_entries (G_APPLICATION (app), options);
-
-	app->priv->asr = FALSE;
-	gchar *asr_settings_filename;
-	asr_settings_filename = get_asr_settings_filename ();
-	app->priv->asr_settings = pt_asr_settings_new (asr_settings_filename);
-	g_free (asr_settings_filename);
 }
 
 static void
-pt_app_finalize (GObject *object)
+pt_app_dispose (GObject *object)
 {
 	PtApp *app = PT_APP (object);
 
-	g_clear_object (&app->priv->asr_settings);
 #ifdef G_OS_UNIX
 	g_clear_object (&app->priv->mediakeys);
 	g_clear_object (&app->priv->dbus_service);
@@ -480,7 +421,7 @@ pt_app_class_init (PtAppClass *klass)
 	GApplicationClass    *gapp_class    = G_APPLICATION_CLASS (klass);
 	GObjectClass         *gobject_class = G_OBJECT_CLASS (klass);
 
-	gobject_class->finalize          = pt_app_finalize;
+	gobject_class->dispose           = pt_app_dispose;
 	gapp_class->open                 = pt_app_open;
 	gapp_class->activate             = pt_app_activate;
 	gapp_class->startup              = pt_app_startup;

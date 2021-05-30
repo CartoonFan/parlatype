@@ -20,18 +20,12 @@
 #include "config.h"
 #include <gtk/gtk.h>
 #include <pt-player.h>
-#ifdef HAVE_ASR
-#include "pt-asr-settings.h"
-#endif
 
 struct _PtWindowPrivate
 {
 	GSettings	 *editor;
 	GtkRecentManager *recent;
-
-#ifdef HAVE_ASR
-	PtAsrSettings    *asr_settings;
-#endif
+	PtConfig         *asr_config;
 
 	GtkClipboard *clip;
 	gulong        clip_handler_id;
@@ -48,14 +42,20 @@ struct _PtWindowPrivate
 	GtkWidget  *button_jump_back;
 	GtkWidget  *button_jump_forward;
 	GtkWidget  *volumebutton;
-	GStrv      *vol_icons;
+	GStrv       vol_icons;
 	GtkGesture *vol_event;
 	GtkWidget  *pos_menu_button;
 	GtkWidget  *pos_label;
 	GMenuItem  *go_to_timestamp;
 	GtkWidget  *speed_scale;
 	GtkWidget  *waveviewer;
+
+	GMenuModel *primary_menu;
 	GMenuModel *secondary_menu;
+	GMenu      *asr_menu;
+	GMenuItem  *asr_menu_item1;
+	GMenuItem  *asr_menu_item2;
+	gboolean    asr;
 
 	gint64      last_time;	// last time to compare if it changed
 

@@ -23,8 +23,7 @@
  * PtPlayer is the GStreamer backend for Parlatype. Construct it with #pt_player_new().
  * Then you have to open a file with pt_player_open_uri().
  *
- * The internal time unit in PtPlayer are milliseconds and for scale widgets there
- * is a scale from 0 to 1000. Use it to jump to a position or to update your widget.
+ * The internal time unit in PtPlayer are milliseconds.
  */
 
 
@@ -34,10 +33,15 @@
 #include <glib/gi18n-lib.h>
 #include <gst/gst.h>
 #include <gst/audio/streamvolume.h>
+#include "gst/gst-helpers.h"
 #include "gst/gstptaudiobin.h"
-#ifdef HAVE_ASR
+#ifdef HAVE_POCKETSPHINX
   #include "gst/gstparlasphinx.h"
 #endif
+#ifdef HAVE_DEEPSPEECH
+  #include "gst/gstptdeepspeech.h"
+#endif
+#include "pt-config.h"
 #include "pt-i18n.h"
 #include "pt-position-manager.h"
 #include "pt-waveviewer.h"
@@ -47,11 +51,11 @@ struct _PtPlayerPrivate
 {
 	GstElement *play;
 	GstElement *scaletempo;
-	GstElement *volume_changer;
 	GstElement *audio_bin;
 	guint	    bus_watch_id;
 
 	PtPositionManager *pos_mgr;
+	GHashTable *plugins;
 
 	gint64	    dur;
 	gdouble	    speed;
@@ -154,7 +158,6 @@ pt_player_seek (PtPlayer *player,
 static void
 pt_player_set_state_blocking (PtPlayer *player,
                               GstState  state)
-
 {
 	g_assert (GST_IS_ELEMENT (player->priv->play));
 
@@ -286,7 +289,7 @@ bus_call (GstBus     *bus,
 			break;
 
 		gdouble volume;
-		volume = gst_stream_volume_get_volume (GST_STREAM_VOLUME (player->priv->volume_changer),
+		volume = gst_stream_volume_get_volume (GST_STREAM_VOLUME (player->priv->audio_bin),
 			                               GST_STREAM_VOLUME_FORMAT_CUBIC);
 		if (player->priv->volume != volume) {
 			player->priv->volume = volume;
@@ -317,17 +320,18 @@ bus_call (GstBus     *bus,
 		}
 
 	case GST_MESSAGE_ELEMENT:
-		if (g_strcmp0 (GST_MESSAGE_SRC_NAME (msg), "sphinx") != 0)
-			break;
-		const GstStructure *st = gst_message_get_structure (msg);
-		if (g_value_get_boolean (gst_structure_get_value (st, "final"))) {
-			g_signal_emit_by_name (player, "asr-final",
-				g_value_get_string (
-					gst_structure_get_value (st, "hypothesis")));
-		} else {
-			g_signal_emit_by_name (player, "asr-hypothesis",
-				g_value_get_string (
-					gst_structure_get_value (st, "hypothesis")));
+		if (g_strcmp0 (GST_MESSAGE_SRC_NAME (msg), "parlasphinx")  == 0 ||
+		    g_strcmp0 (GST_MESSAGE_SRC_NAME (msg), "ptdeepspeech") == 0) {
+			const GstStructure *st = gst_message_get_structure (msg);
+			if (g_value_get_boolean (gst_structure_get_value (st, "final"))) {
+				g_signal_emit_by_name (player, "asr-final",
+					g_value_get_string (
+						gst_structure_get_value (st, "hypothesis")));
+			} else {
+				g_signal_emit_by_name (player, "asr-hypothesis",
+					g_value_get_string (
+						gst_structure_get_value (st, "hypothesis")));
+			}
 		}
 		break;
 
@@ -623,93 +627,6 @@ pt_player_selection_active (PtPlayer *player)
 	return !(player->priv->segstart == 0 && player->priv->segend == player->priv->dur);
 }
 
-/**
- * pt_player_rewind:
- * @player: a #PtPlayer
- * @speed: the speed
- *
- * Rewinds at the given speed. @speed accepts positive as well as negative
- * values and normalizes them to play backwards.
- *
- * <note><para>Note that depending on the file/stream format this works more
- * or less good.</para></note>
- *
- * Since: 1.5
- */
-void
-pt_player_rewind (PtPlayer *player,
-                  gdouble   speed)
-{
-	g_return_if_fail (PT_IS_PLAYER (player));
-	g_return_if_fail (speed != 0);
-
-	gint64 pos;
-
-	if (!pt_player_query_position (player, &pos))
-		return;
-
-	if (speed > 0)
-		speed = speed * -1;
-
-	gst_element_seek (
-		player->priv->play,
-		speed,
-		GST_FORMAT_TIME,
-		GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_TRICKMODE,
-		GST_SEEK_TYPE_SET,
-		player->priv->segstart,
-		GST_SEEK_TYPE_SET,
-		pos);
-
-	/* Block until state changed */
-	gst_element_get_state (
-		player->priv->play,
-		NULL, NULL,
-		GST_CLOCK_TIME_NONE);
-
-	pt_player_play (player);
-}
-
-/**
- * pt_player_fast_forward:
- * @player: a #PtPlayer
- * @speed: the speed
- *
- * Play fast forward at the given speed.
- *
- * Since: 1.5
- */
-void
-pt_player_fast_forward (PtPlayer *player,
-                        gdouble   speed)
-{
-	g_return_if_fail (PT_IS_PLAYER (player));
-	g_return_if_fail (speed > 0);
-
-	gint64 pos;
-
-	if (!pt_player_query_position (player, &pos))
-		return;
-
-	gst_element_seek (
-		player->priv->play,
-		speed,
-		GST_FORMAT_TIME,
-		GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_TRICKMODE,
-		GST_SEEK_TYPE_SET,
-		pos,
-		GST_SEEK_TYPE_SET,
-		player->priv->segend);
-
-	/* Block until state changed */
-	gst_element_get_state (
-		player->priv->play,
-		NULL, NULL,
-		GST_CLOCK_TIME_NONE);
-
-	pt_player_play (player);
-}
-
 /* -------------------- Positioning, speed, volume -------------------------- */
 
 /**
@@ -868,61 +785,6 @@ pt_player_jump_to_position (PtPlayer *player,
 }
 
 /**
- * pt_player_jump_to_permille:
- * @player: a #PtPlayer
- * @permille: scale position between 0 and 1000
- *
- * This is used for scale widgets. Start of stream is at 0, end of stream is
- * at 1000. This will jump to the given position. If your widget uses a different
- * scale, it’s up to you to convert it to 1/1000. Values beyond 1000 are not
- * allowed, values outside the selection are ignored.
- *
- * Since: 1.4
- */
-void
-pt_player_jump_to_permille (PtPlayer *player,
-                            guint     permille)
-{
-	g_return_if_fail (PT_IS_PLAYER (player));
-	g_return_if_fail (permille <= 1000);
-
-	gint64 new;
-
-	new = player->priv->dur * (gint64) permille / 1000;
-	if (new > player->priv->segend || new < player->priv->segstart)
-		return;
-
-	pt_player_seek (player, new);
-}
-
-/**
- * pt_player_get_permille:
- * @player: a #PtPlayer
- *
- * This is used for scale widgets. If the scale has to synchronize with the
- * current position in stream, this gives the position on a scale between 0 and
- * 1000.
- *
- * Failure in querying the position returns -1.
- *
- * Return value: a scale position between 0 and 1000 or -1 on failure
- *
- * Since: 1.4
- */
-gint
-pt_player_get_permille (PtPlayer *player)
-{
-	g_return_val_if_fail (PT_IS_PLAYER (player), -1);
-
-	gint64 pos;
-
-	if (!pt_player_query_position (player, &pos))
-		return -1;
-
-	return (gfloat) pos / (gfloat) player->priv->dur * 1000;
-}
-
-/**
  * pt_player_set_speed:
  * @player: a #PtPlayer
  * @speed: speed
@@ -979,7 +841,7 @@ pt_player_get_volume (PtPlayer *player)
 
 	if (player->priv->play) {
 		volume = gst_stream_volume_get_volume (
-				GST_STREAM_VOLUME (player->priv->volume_changer),
+				GST_STREAM_VOLUME (player->priv->audio_bin),
 				GST_STREAM_VOLUME_FORMAT_CUBIC);
 		if (player->priv->volume != volume)
 			player->priv->volume = volume;
@@ -1007,7 +869,7 @@ pt_player_set_volume (PtPlayer *player,
 	player->priv->volume = volume;
 
 	if (player->priv->play)
-		gst_stream_volume_set_volume (GST_STREAM_VOLUME (player->priv->volume_changer),
+		gst_stream_volume_set_volume (GST_STREAM_VOLUME (player->priv->audio_bin),
 			                      GST_STREAM_VOLUME_FORMAT_CUBIC,
 			                      volume);
 
@@ -1033,7 +895,7 @@ pt_player_get_mute (PtPlayer *player)
 	gboolean retval = FALSE;
 
 	if (player->priv->play)
-		retval = gst_stream_volume_get_mute (GST_STREAM_VOLUME (player->priv->volume_changer));
+		retval = gst_stream_volume_get_mute (GST_STREAM_VOLUME (player->priv->audio_bin));
 
 	return retval;
 }
@@ -1055,25 +917,7 @@ pt_player_set_mute (PtPlayer *player,
 	g_return_if_fail (PT_IS_PLAYER (player));
 
 	if (player->priv->play)
-		gst_stream_volume_set_mute (GST_STREAM_VOLUME (player->priv->volume_changer), mute);
-}
-
-/**
- * pt_player_mute_volume:
- * @player: a #PtPlayer
- * @mute: a gboolean
- *
- * Mute the player (with TRUE) or set it back to normal volume (with FALSE).
- * This remembers the volume level, so you don’t have to keep track of the old value.
- *
- * Since: 1.4
- * Deprecated: 2.1: Use pt_player_set_mute() instead.
- */
-void
-pt_player_mute_volume (PtPlayer *player,
-                       gboolean  mute)
-{
-	pt_player_set_mute (player, mute);
+		gst_stream_volume_set_mute (GST_STREAM_VOLUME (player->priv->audio_bin), mute);
 }
 
 /**
@@ -1767,32 +1611,12 @@ pt_player_goto_timestamp (PtPlayer *player,
 
 /* --------------------- Init and GObject management ------------------------ */
 
-static void
-pt_player_init (PtPlayer *player)
-{
-	gst_init (NULL, NULL);
-	player->priv = pt_player_get_instance_private (player);
-	player->priv->play = NULL;
-	player->priv->timestamp_precision = PT_PRECISION_SECOND_10TH;
-	player->priv->timestamp_fixed = FALSE;
-	player->priv->wv = NULL;
-	player->sphinx = NULL;
-	player->priv->scaletempo = NULL;
-	player->priv->volume_changer = NULL;
-	player->priv->pos_mgr = pt_position_manager_new ();
-
-	gst_pt_audio_bin_register ();
-#ifdef HAVE_ASR
-	gst_parlasphinx_register ();
-#endif
-}
-
 static gboolean
 notify_volume_idle_cb (PtPlayer *player)
 {
 	gdouble vol;
 
-	vol = gst_stream_volume_get_volume (GST_STREAM_VOLUME (player->priv->volume_changer),
+	vol = gst_stream_volume_get_volume (GST_STREAM_VOLUME (player->priv->audio_bin),
 	                                    GST_STREAM_VOLUME_FORMAT_CUBIC);
 	player->priv->volume = vol;
 	g_object_notify_by_pspec (G_OBJECT (player),
@@ -1818,7 +1642,7 @@ notify_mute_idle_cb (PtPlayer *player)
 {
 	gboolean mute;
 
-	mute = gst_stream_volume_get_mute (GST_STREAM_VOLUME (player->priv->volume_changer));
+	mute = gst_stream_volume_get_mute (GST_STREAM_VOLUME (player->priv->audio_bin));
 	player->priv->mute = mute;
 	g_object_notify_by_pspec (G_OBJECT (player),
 	                          obj_properties[PROP_MUTE]);
@@ -1835,149 +1659,139 @@ mute_changed (GObject    *object,
 	g_source_set_name_by_id (id, "[parlatype] notify_mute_idle_cb");
 }
 
-static GstElement*
-make_element (gchar   *factoryname,
-              gchar   *name,
-              GError **error)
-{
-	GstElement *result;
+/**
+ * pt_player_setup_asr:
+ * @player: a #PtPlayer
+ * @state: enable or disable ASR
+ *
+ * A @state of TRUE enables automatic speech recognition. The pipeline should
+ * have been configured before with pt_player_configure_asr().
+ *
+ * A @state of FALSE disables automatic speech recognition. This is the default.
 
-	result = gst_element_factory_make (factoryname, name);
-	if (!result)
-		g_set_error (error, GST_CORE_ERROR,
-		             GST_CORE_ERROR_MISSING_PLUGIN,
-			    _("Failed to load plugin “%s”."), factoryname);
+ * To get the results, connect to the #PtPlayer::asr-hypothesis and/or
+ * #PtPlayer::asr-final signal. Start recognition with pt_player_play().
+ *
+ * Since: 3.0
+ */
+void
+pt_player_setup_asr (PtPlayer  *player,
+                     gboolean   state)
+{
+	GstPtAudioBin *bin = GST_PT_AUDIO_BIN (player->priv->audio_bin);
+	gint pos;
+
+	pos = pt_player_get_position (player);
+	pt_player_set_state_blocking (player, GST_STATE_NULL);
+
+	gst_pt_audio_bin_setup_asr (bin, state);
+
+	pt_player_set_state_blocking (player, GST_STATE_PAUSED);
+	if (pos > 0)
+		pt_player_jump_to_position (player, pos);
+}
+
+/**
+ * pt_player_configure_asr:
+ * @player: a #PtPlayer
+ * @config: a #PtConfig
+ * @error: (nullable): return location for an error, or NULL
+ *
+ * Configure ASR setup.
+ *
+ * Return value: TRUE on success, otherwise FALSE
+ *
+ * Since: 3.0
+ */
+gboolean
+pt_player_configure_asr (PtPlayer  *player,
+                         PtConfig  *config,
+                         GError   **error)
+{
+	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+	gboolean result;
+	GstPtAudioBin *bin;
+
+	bin = GST_PT_AUDIO_BIN (player->priv->audio_bin);
+	result = gst_pt_audio_bin_configure_asr (bin, config, error);
 
 	return result;
 }
 
-#define PROPAGATE_ERROR_NULL \
-if (earlier_error != NULL) {\
-	g_propagate_error (error, earlier_error);\
-	return NULL;\
-}
-
-#define PROPAGATE_ERROR_FALSE \
-if (earlier_error != NULL) {\
-	g_propagate_error (error, earlier_error);\
-	return FALSE;\
-}
-
-static gboolean
-pt_player_setup_pipeline (PtPlayer  *player,
-                          GError   **error)
-{
-	GError *earlier_error = NULL;
-
-	player->priv->play = make_element ("playbin", "play", &earlier_error);
-	PROPAGATE_ERROR_FALSE
-	player->priv->scaletempo = make_element ("scaletempo", "tempo", &earlier_error);
-	PROPAGATE_ERROR_FALSE
-
-	player->priv->audio_bin = make_element ("ptaudiobin", "audiobin", &earlier_error);
-	PROPAGATE_ERROR_FALSE
-
-	g_object_set (G_OBJECT (player->priv->play),
-			"audio-sink", player->priv->audio_bin, NULL);
-
-	g_object_get (G_OBJECT (player->priv->audio_bin),
-		      "volume", &player->priv->volume_changer,
-		      "sphinx", &player->sphinx, NULL);
-
-	/* This is responsible for syncing system volume with Parlatype volume.
-	   Syncing is done only in Play state */
-	g_signal_connect (G_OBJECT (player->priv->play),
-			"notify::volume", G_CALLBACK (vol_changed), player);
-	g_signal_connect (G_OBJECT (player->priv->play),
-			"notify::mute", G_CALLBACK (mute_changed), player);
-	return TRUE;
-}
-
 /**
- * pt_player_setup_sphinx:
+ * pt_player_config_is_loadable:
  * @player: a #PtPlayer
- * @error: (nullable): return location for an error, or NULL
+ * @config: a #PtConfig
  *
- * Setup the GStreamer pipeline for automatic speech recognition using
- * CMU sphinx. This loads resources like language model and dictionary and
- * might take a few seconds.
- * There is no audio output in this mode. Connect to the
- * #PtPlayer::asr-hypothesis and/or #PtPlayer::asr-final signal to get
- * the results. Start recognition with pt_player_play().
+ * Checks if #PtPlayer is able to load the GStreamer plugin used by @config.
  *
- * Return value: TRUE on success, FALSE if the pipeline could not be set up
+ * Return value: TRUE on success, otherwise FALSE
  *
- * Since: 1.6
+ * Since: 3.0
  */
 gboolean
-pt_player_setup_sphinx (PtPlayer  *player,
-                        GError   **error)
+pt_player_config_is_loadable (PtPlayer *player,
+                              PtConfig *config)
 {
-	GError *earlier_error = NULL;
+	g_return_val_if_fail (PT_IS_PLAYER (player), FALSE);
+	g_return_val_if_fail (PT_IS_CONFIG (config), FALSE);
 
-	if (!player->priv->play)
-		pt_player_setup_pipeline (player, &earlier_error);
-	PROPAGATE_ERROR_FALSE
+	gchar      *plugin_name;
+	GstElement *plugin;
+	gpointer    pointer;
+	gboolean    result;
 
-	gint pos;
-	pos = pt_player_get_position (player);
+	plugin_name = pt_config_get_plugin (config);
+	if (!plugin_name)
+		return FALSE;
 
-	pt_player_set_state_blocking (player, GST_STATE_NULL);
+	if (g_hash_table_contains (player->priv->plugins, plugin_name)) {
+		pointer = g_hash_table_lookup (player->priv->plugins,
+		                               plugin_name);
+		return GPOINTER_TO_INT (pointer);
+	}
 
-	g_object_set (G_OBJECT (player->priv->audio_bin), "asr", TRUE, NULL);
+	plugin = gst_element_factory_make (plugin_name, NULL);
 
-	/* setting the "audio-filter" property unrefs the previous audio-filter! */
-	gst_object_ref (player->priv->scaletempo);
-	g_object_set (player->priv->play, "audio-filter", NULL, NULL);
+	if (plugin) {
+		gst_object_unref (plugin);
+		result = TRUE;
+	} else {
+		result = FALSE;
+	}
 
-	pt_player_set_state_blocking (player, GST_STATE_PAUSED);
-	pt_player_jump_to_position (player, pos);
+	g_hash_table_insert (player->priv->plugins,
+	                     g_strdup (plugin_name), GINT_TO_POINTER (result));
 
-	return TRUE;
+	return result;
 }
 
 /**
  * pt_player_setup_player:
  * @player: a #PtPlayer
- * @error: (nullable): return location for an error, or NULL
+ * @state: enable or disable audible playback
  *
- * Setup the GStreamer pipeline for playback. This or pt_player_setup_sphinx()
- * must be called first on a new PtPlayer object. It’s a programmer’s error to
- * do anything with the #PtPlayer before calling the setup function.
+ * Setup the GStreamer pipeline for playback.
  *
- * Return value: TRUE on success, FALSE if the pipeline could not be set up
- *
- * Since: 1.6
+ * Since: 3.0
  */
-gboolean
+void
 pt_player_setup_player (PtPlayer  *player,
-                        GError   **error)
+                        gboolean   state)
 {
-	GError *earlier_error = NULL;
-
-	if (!player->priv->play)
-		pt_player_setup_pipeline (player, &earlier_error);
-	PROPAGATE_ERROR_FALSE
-
+	GstPtAudioBin *bin = GST_PT_AUDIO_BIN (player->priv->audio_bin);
 	gint pos;
+
 	pos = pt_player_get_position (player);
-
-	/* Before removing and adding elements, set state to NULL to be on the
-	   safe side. Without changing volume didn’t work anymore after switching
-	   from playback setup to ASR setup and back again. */
-
 	pt_player_set_state_blocking (player, GST_STATE_NULL);
 
-	g_object_set (G_OBJECT (player->priv->audio_bin), "player", TRUE, NULL);
-
-	g_object_set (G_OBJECT (player->priv->play),
-			"audio-filter", player->priv->scaletempo, NULL);
+	gst_pt_audio_bin_setup_player (bin, state);
 
 	pt_player_set_state_blocking (player, GST_STATE_PAUSED);
 	if (pos > 0)
 		pt_player_jump_to_position (player, pos);
 
-	return TRUE;
 }
 
 static void
@@ -1994,6 +1808,8 @@ pt_player_dispose (GObject *object)
 
 		gst_object_unref (GST_OBJECT (player->priv->play));
 		player->priv->play = NULL;
+
+		g_hash_table_destroy (player->priv->plugins);
 	}
 
 	G_OBJECT_CLASS (pt_player_parent_class)->dispose (object);
@@ -2120,6 +1936,46 @@ pt_player_get_property (GObject    *object,
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
 		break;
 	}
+}
+
+static void
+pt_player_init (PtPlayer *player)
+{
+	player->priv = pt_player_get_instance_private (player);
+
+	PtPlayerPrivate *priv = player->priv;
+
+	priv->timestamp_precision = PT_PRECISION_SECOND_10TH;
+	priv->timestamp_fixed = FALSE;
+	priv->wv = NULL;
+	priv->pos_mgr = pt_position_manager_new ();
+	priv->plugins = g_hash_table_new_full (g_str_hash, g_str_equal,
+	                                       g_free, NULL);
+
+	gst_init (NULL, NULL);
+
+	gst_pt_audio_bin_register ();
+#ifdef HAVE_POCKETSPHINX
+	gst_parlasphinx_register ();
+#endif
+#ifdef HAVE_DEEPSPEECH
+	gst_ptdeepspeech_register ();
+#endif
+
+	priv->play       = _pt_make_element ("playbin",    "play",     NULL);
+	priv->scaletempo = _pt_make_element ("scaletempo", "tempo",    NULL);
+	priv->audio_bin  = _pt_make_element ("ptaudiobin", "audiobin", NULL);
+
+	g_object_set (G_OBJECT (priv->play),
+	              "audio-filter", priv->scaletempo,
+	              "audio-sink",   priv->audio_bin, NULL);
+
+	/* This is responsible for syncing system volume with Parlatype volume.
+	   Syncing is done only in Play state */
+	g_signal_connect (G_OBJECT (priv->play),
+			"notify::volume", G_CALLBACK (vol_changed), player);
+	g_signal_connect (G_OBJECT (priv->play),
+			"notify::mute", G_CALLBACK (mute_changed), player);
 }
 
 static void

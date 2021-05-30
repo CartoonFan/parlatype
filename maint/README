@@ -7,8 +7,8 @@ There are 3 translation templates (lib, app, help).
 Update templates and po files with:
 
 cd build
-ninja libparlatype-pot
-ninja libparlatype-update-po
+ninja libparlatype3-pot
+ninja libparlatype3-update-po
 ninja parlatype-pot
 ninja parlatype-update-po
 ninja help-org.parlatype.Parlatype-pot
@@ -55,6 +55,16 @@ Testing
   ninja; ninja test; ninja coverage-html
 - Valgrind:
   meson test --wrap='valgrind --tool=memcheck --leak-check=full --leak-resolution=high --num-callers=20 --suppressions=../libparlatype/tests/glib.supp --suppressions=../libparlatype/tests/gst.supp' --timeout-multiplier=10 player
+
+
+Debug
+=====
+
+https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=c
+For example debugging a single GStreamer element (debug = 5, log = 6)
+GST_DEBUG=ptaudioasrbin:5 parlatype
+
+G_MESSAGES_DEBUG=parlatype parlatype
 
 
 Release

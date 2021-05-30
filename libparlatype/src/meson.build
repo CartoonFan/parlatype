@@ -17,8 +17,15 @@ marshal_h = marshalers[1]
 sources = [
 	gresources,
 	marshalers,
+	'gst/gst-helpers.c',
+	'gst/gst-helpers.h',
 	'gst/gstptaudiobin.c',
 	'gst/gstptaudiobin.h',
+	'gst/gstptaudioasrbin.c',
+	'gst/gstptaudioasrbin.h',
+	'gst/gstptaudioplaybin.c',
+	'gst/gstptaudioplaybin.h',
+	'pt-config.c',
 	'pt-i18n.c',
 	'pt-i18n.h',
 	'pt-player.c',
@@ -40,9 +47,16 @@ sources = [
 	'pt-waveviewer-waveform.h',
 ]
 
-deps = [gtk, gstreamer, gstreamer_app, gstreamer_audio, math]
+deps = [config_h,
+	gnome_desktop,
+	gtk,
+	gstreamer,
+	gstreamer_app,
+	gstreamer_audio,
+	math,
+]
 
-if asr
+if with_pocketsphinx
 	sources += [
 	'gst/gstparlasphinx.c',
 	'gst/gstparlasphinx.h',
@@ -50,11 +64,23 @@ if asr
 
 	sphinxbase = dependency('sphinxbase')
 	pocketsphinx = dependency('pocketsphinx')
-
 	deps += [sphinxbase, pocketsphinx]
 endif
 
+if with_deepspeech
+	sources += [
+	'gst/gstptdeepspeech.c',
+	'gst/gstptdeepspeech.h',
+	'gst/vad_private.c',
+	'gst/vad_private.h',
+	]
+
+	deepspeech = compiler.find_library('deepspeech')
+	deps += [deepspeech]
+endif
+
 headers = [
+	'pt-config.h',
 	'pt-player.h',
 	'pt-waveloader.h',
 	'pt-waveviewer.h',
@@ -73,6 +99,10 @@ libparlatype = shared_library(
 	link_args: vflag,
 	link_depends: mapfile,
 	install: true,
+	c_args: [
+		'-DPARLATYPE_COMPILATION',
+		'-DG_LOG_DOMAIN="libparlatype"',
+	],
 )
 
 libparlatype_dep = declare_dependency(
@@ -104,6 +134,7 @@ if gir
 	gir_dep = dependency('gobject-introspection-1.0')
 	introspection_sources = [
 		headers,
+		'pt-config.c',
 		'pt-player.c',
 		'pt-waveloader.c',
 		'pt-waveviewer.c',

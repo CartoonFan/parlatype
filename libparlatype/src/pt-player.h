@@ -18,7 +18,12 @@
 #ifndef PT_PLAYER_H
 #define PT_PLAYER_H
 
+#if !defined (__PARLATYPE_H_INSIDE__) && !defined (PARLATYPE_COMPILATION)
+#error "Only <parlatype.h> can be included directly."
+#endif
+
 #include <gio/gio.h>
+#include "pt-config.h"
 #include "pt-waveviewer.h"
 
 G_BEGIN_DECLS
@@ -39,7 +44,6 @@ typedef struct _PtPlayerPrivate PtPlayerPrivate;
 struct _PtPlayer
 {
 	GObject parent;
-	GObject *sphinx;
 
 	/*< private > */
 	PtPlayerPrivate *priv;
@@ -90,9 +94,6 @@ gint		pt_player_get_back		(PtPlayer *player);
 gint		pt_player_get_forward		(PtPlayer *player);
 void		pt_player_jump_to_position	(PtPlayer *player,
 						 gint      milliseconds);
-void		pt_player_jump_to_permille	(PtPlayer *player,
-						 guint     permille);
-gint		pt_player_get_permille		(PtPlayer *player);
 void		pt_player_set_speed		(PtPlayer *player,
 						 gdouble   speed);
 gdouble		pt_player_get_volume		(PtPlayer *player);
@@ -101,15 +102,6 @@ void		pt_player_set_volume		(PtPlayer *player,
 gboolean	pt_player_get_mute		(PtPlayer *player);
 void		pt_player_set_mute		(PtPlayer *player,
 						 gboolean  mute);
-#ifndef PT_DISABLE_DEPRECATED
-G_DEPRECATED_FOR(pt_player_set_mute)
-void		pt_player_mute_volume		(PtPlayer *player,
-						 gboolean  mute);
-#endif
-void		pt_player_rewind		(PtPlayer *player,
-						 gdouble   speed);
-void		pt_player_fast_forward		(PtPlayer *player,
-						 gdouble   speed);
 gint64		pt_player_get_position		(PtPlayer *player);
 gint64		pt_player_get_duration		(PtPlayer *player);
 gchar*		pt_player_get_uri		(PtPlayer *player);
@@ -135,10 +127,15 @@ gboolean	pt_player_goto_timestamp	(PtPlayer *player,
 						 gchar    *timestamp);
 void		pt_player_connect_waveviewer	(PtPlayer *player,
 						 PtWaveviewer *wv);
-gboolean	pt_player_setup_player		(PtPlayer  *player,
-			                         GError   **error);
-gboolean	pt_player_setup_sphinx		(PtPlayer  *player,
-			                         GError   **error);
+void		pt_player_setup_player		(PtPlayer  *player,
+						 gboolean   state);
+void		pt_player_setup_asr		(PtPlayer  *player,
+						 gboolean   state);
+gboolean	pt_player_configure_asr		(PtPlayer  *player,
+						 PtConfig  *config,
+						 GError   **error);
+gboolean	pt_player_config_is_loadable	(PtPlayer *player,
+						 PtConfig *config);
 PtPlayer*	pt_player_new			(void);
 
 G_END_DECLS

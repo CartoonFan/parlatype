@@ -1,4 +1,4 @@
-/* Copyright (C) Gabor Karsay 2019 <gabor.karsay@gmx.at>
+/* Copyright (C) Gabor Karsay 2020 <gabor.karsay@gmx.at>
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as published
@@ -15,30 +15,18 @@
  */
 
 
-#ifndef PT_ASR_ASSISTANT_HELPERS_H
-#define PT_ASR_ASSISTANT_HELPERS_H
+#ifndef GST_HELPERS_H
+#define GST_HELPERS_H
 
-#include "config.h"
-#include "pt-asr-assistant.h"
+#include <gst/gst.h>
 
-typedef struct {
-	GPtrArray *lms;
-	GPtrArray *dicts;
-	GPtrArray *hmms;
-} SearchResult;
+G_BEGIN_DECLS
 
 
-void		search_result_free	(SearchResult *r);
+GstElement*	_pt_make_element	(gchar   *factoryname,
+                                         gchar   *name,
+                                         GError **error);
 
-gpointer	_pt_asr_assistant_recursive_search_finish (
-					PtAsrAssistant  *self,
-					GAsyncResult    *result,
-					GError         **error);
-
-void		_pt_asr_assistant_recursive_search_async (
-					PtAsrAssistant      *self,
-					GFile               *folder,
-					GAsyncReadyCallback  callback,
-					gpointer             user_data);
+G_END_DECLS
 
 #endif

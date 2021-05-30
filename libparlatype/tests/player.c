@@ -18,6 +18,7 @@
 #include <glib.h>
 #include <gst/gst.h> /* error domain */
 #include <pt-player.h>
+#include "mock-plugin.h"
 
 
 /* Fixture ------------------------------------------------------------------ */
@@ -32,15 +33,13 @@ static void
 pt_player_fixture_set_up (PtPlayerFixture *fixture,
 			  gconstpointer    user_data)
 {
-	GError *error = NULL;
 	fixture->testplayer = NULL;
 	gchar    *path;
 	GFile    *file;
 	gboolean  success;
 
 	fixture->testplayer = pt_player_new ();
-	pt_player_setup_player (fixture->testplayer, &error);
-	g_assert_no_error (error);
+	pt_player_setup_player (fixture->testplayer, TRUE);
 
 	path = g_test_build_filename (G_TEST_DIST, "data", "tick-10sec.ogg", NULL);
 	/* In make distcheck the path is something like /_build/../data/test1.ogg".
@@ -74,7 +73,6 @@ player_new (void)
 {
 	/* create new PtPlayer and test initial properties */
 
-	GError *error = NULL;
 	PtPlayer *testplayer;
 
 	/* Construction properties */
@@ -88,8 +86,7 @@ player_new (void)
 	gint pause, back, forward;
 
 	testplayer = pt_player_new ();
-	pt_player_setup_player (testplayer, &error);
-	g_assert_no_error (error);
+	pt_player_setup_player (testplayer, TRUE);
 	g_assert_true (PT_IS_PLAYER (testplayer));
 	g_object_set (testplayer,
 		      "pause", 0,
@@ -123,6 +120,10 @@ player_new (void)
 	g_assert_cmpstr (t_delimiter, ==, "#");
 	g_assert_cmpstr (t_separator, ==, ".");
 
+	g_assert_cmpint (pt_player_get_pause (testplayer), ==, pause);
+	g_assert_cmpint (pt_player_get_back (testplayer), ==, back);
+	g_assert_cmpint (pt_player_get_forward (testplayer), ==, forward);
+
 	g_free (t_delimiter);
 	g_free (t_separator);
 	g_object_unref (testplayer);
@@ -150,15 +151,13 @@ player_open_fail (void)
 {
 	PtPlayer    *player;
 	ErrorCBData  data;
-	GError      *error = NULL;
 	gboolean     success;
 	gchar       *path;
 	GFile       *file;
 	gchar       *uri;
 
 	player = pt_player_new ();
-	pt_player_setup_player (player, &error);
-	g_assert_no_error (error);
+	pt_player_setup_player (player, TRUE);
 
 	/* Fails to open "foo" */
 	data.loop = g_main_loop_new (g_main_context_default (), FALSE);
@@ -214,6 +213,26 @@ player_open_ogg (PtPlayerFixture *fixture,
 	getchar = pt_player_get_filename (fixture->testplayer);
 	g_assert_cmpstr (getchar, ==, "tick-10sec.ogg");
 	g_free (getchar);
+}
+
+static void
+player_selections (PtPlayerFixture *fixture,
+                   gconstpointer    user_data)
+{
+	/* set, get and clear a selection */
+
+	gboolean selection;
+
+	selection = pt_player_selection_active (fixture->testplayer);
+	g_assert_false (selection);
+
+	pt_player_set_selection (fixture->testplayer, 1000, 2000);
+	selection = pt_player_selection_active (fixture->testplayer);
+	g_assert_true (selection);
+
+	pt_player_clear_selection (fixture->testplayer);
+	selection = pt_player_selection_active (fixture->testplayer);
+	g_assert_false (selection);
 }
 
 static void
@@ -374,7 +393,6 @@ player_volume_speed (PtPlayerFixture *fixture,
 {
 	/* set speed and volume properties */
 
-	GError *error = NULL;
 	PtPlayer *bind_player;
 	gdouble speed, volume;
 
@@ -394,15 +412,16 @@ player_volume_speed (PtPlayerFixture *fixture,
 	pt_player_set_mute (fixture->testplayer, TRUE);
 	g_object_get (fixture->testplayer, "volume", &volume, NULL);
 	g_assert_cmpfloat_with_epsilon (volume, 0.7, 0.00001);
+	g_assert_true (pt_player_get_mute (fixture->testplayer));
 
 	pt_player_set_mute (fixture->testplayer, FALSE);
 	g_object_get (fixture->testplayer, "volume", &volume, NULL);
 	g_assert_cmpfloat_with_epsilon (volume, 0.7, 0.00001);
+	g_assert_false (pt_player_get_mute (fixture->testplayer));
 
 	/* check bind property */
 	bind_player = pt_player_new ();
-	pt_player_setup_player (bind_player, &error);
-	g_assert_no_error (error);
+	pt_player_setup_player (bind_player, TRUE);
 
 	g_object_bind_property (fixture->testplayer, "volume",
 				bind_player, "volume",
@@ -498,6 +517,48 @@ player_timestrings (PtPlayerFixture *fixture,
 	g_free (timestring);
 }
 
+static void
+player_config_loadable (void)
+{
+	PtPlayer *testplayer;
+	PtConfig *good, *bad;
+	GFile    *testfile;
+	gchar    *testpath;
+	gboolean  success;
+
+	/* Create player */
+	testplayer = pt_player_new ();
+	pt_player_setup_player (testplayer, TRUE);
+	g_assert_true (PT_IS_PLAYER (testplayer));
+	mock_plugin_register ();
+
+	/* Create config with existing plugin */
+	testpath = g_test_build_filename (G_TEST_DIST, "data", "config-mock-plugin.asr", NULL);
+	testfile = g_file_new_for_path (testpath);
+	good = pt_config_new (testfile);
+	g_assert_true (pt_config_is_valid (good));
+	g_object_unref (testfile);
+	g_free (testpath);
+
+	/* Create config with missing plugin*/
+	testpath = g_test_build_filename (G_TEST_DIST, "data", "config-test.asr", NULL);
+	testfile = g_file_new_for_path (testpath);
+	bad = pt_config_new (testfile);
+	g_assert_true (pt_config_is_valid (bad));
+	g_object_unref (testfile);
+	g_free (testpath);
+
+	success = pt_player_config_is_loadable (testplayer, good);
+	g_assert_true (success);
+
+	success = pt_player_config_is_loadable (testplayer, bad);
+	g_assert_false (success);
+
+	g_object_unref (good);
+	g_object_unref (bad);
+	g_object_unref (testplayer);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -508,6 +569,9 @@ main (int argc, char *argv[])
 	g_test_add ("/player/open-ogg", PtPlayerFixture, NULL,
 	            pt_player_fixture_set_up, player_open_ogg,
 	            pt_player_fixture_tear_down);
+	g_test_add ("/player/selections", PtPlayerFixture, NULL,
+	            pt_player_fixture_set_up, player_selections,
+	            pt_player_fixture_tear_down);
 	g_test_add ("/player/timestamps", PtPlayerFixture, NULL,
 	            pt_player_fixture_set_up, player_timestamps,
 	            pt_player_fixture_tear_down);
@@ -517,6 +581,7 @@ main (int argc, char *argv[])
 	g_test_add ("/player/timestrings", PtPlayerFixture, NULL,
 	            pt_player_fixture_set_up, player_timestrings,
 	            pt_player_fixture_tear_down);
+	g_test_add_func ("/player/config-loadable", player_config_loadable);
 
 	return g_test_run ();
 }

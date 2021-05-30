@@ -16,7 +16,8 @@ else
 	micro_version = version_array[2].to_int()
 endif
 
-asr = get_option('asr')
+with_pocketsphinx = get_option('pocketsphinx')
+with_deepspeech   = get_option('deepspeech')
 
 prefix     = get_option('prefix')
 bindir     = join_paths(prefix, get_option('bindir'))
@@ -33,16 +34,24 @@ gettext_package = 'parlatype'
 gettext_package_lib = 'libparlatype3'
 
 conf = configuration_data()
-conf.set_quoted('VERSION', meson.project_version())
-conf.set_quoted('PACKAGE_VERSION', meson.project_version())
-conf.set_quoted('PACKAGE', meson.project_name())
+conf.set_quoted('PACKAGE_VERSION', '@VCS_TAG@')
 conf.set_quoted('PACKAGE_NAME', meson.project_name())
 conf.set_quoted('PACKAGE_URL', 'https://www.parlatype.org')
 conf.set_quoted('APP_ID', app_id)
 conf.set_quoted('GETTEXT_LIB', gettext_package_lib)
-conf.set('HAVE_ASR', asr)
-configure_file(output: 'config.h', configuration: conf)
+conf.set_quoted('ASR_DIR', join_paths(datadir, meson.project_name(), 'asr'))
+conf.set('HAVE_POCKETSPHINX', with_pocketsphinx)
+conf.set('HAVE_DEEPSPEECH', with_deepspeech)
+conf_input = configure_file(output: 'config.h.in', configuration: conf)
 conf_inc = include_directories('.', 'libparlatype/src')
+
+config_h = declare_dependency(
+	sources: vcs_tag(
+		command: [ 'git', 'describe', '--tags' ],
+		input: conf_input,
+		output: 'config.h',
+	)
+)
 
 gnome   = import('gnome')
 i18n    = import('i18n')
@@ -80,7 +89,8 @@ status = [
   'Parlatype @0@'.format(meson.project_version()),
   '',
   'Prefix ................... : @0@'.format(prefix),
-  'With ASR ................. : @0@'.format(asr),
+  'With Pocketsphinx ........ : @0@'.format(with_pocketsphinx),
+  'With Deepspeech .......... : @0@'.format(with_deepspeech),
   'With GObject Introspection : @0@'.format(gir),
   'With API reference ....... : @0@'.format(gtk_doc),
   'With Glade catalog ....... : @0@'.format(glade),
